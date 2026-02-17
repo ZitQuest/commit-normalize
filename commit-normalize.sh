@@ -73,14 +73,14 @@ else
 
   case "$lower_subject" in
     *fix*|*bug*|*patch*|*resolve*)   detected_type="fix" ;;
-    *feat*|*add*|*new*|*implement*) detected_type="feat" ;;
-    *doc*|*readme*)                  detected_type="docs" ;;
-    *style*|*format*|*lint*)         detected_type="style" ;;
-    *refactor*|*restructure*)        detected_type="refactor" ;;
     *test*)                          detected_type="test" ;;
+    *doc*|*readme*)                  detected_type="docs" ;;
+    *refactor*|*restructure*)        detected_type="refactor" ;;
+    *style*|*format*|*lint*)         detected_type="style" ;;
+    *perf*|*optim*)                  detected_type="perf" ;;
+    *feat*|*add*|*new*|*implement*) detected_type="feat" ;;
     *build*|*dep*)                   detected_type="build" ;;
     *ci*|*pipeline*)                 detected_type="ci" ;;
-    *perf*|*optim*)                  detected_type="perf" ;;
     *revert*)                        detected_type="revert" ;;
     *)                               detected_type="chore" ;;
   esac
