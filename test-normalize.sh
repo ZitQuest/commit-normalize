@@ -142,6 +142,45 @@ assert_eq "empty message passthrough" \
   "" \
   ""
 
+# --- Trailing period removal ---
+assert_eq "trailing period stripped" \
+  "feat: Add new feature." \
+  "feat: Add new feature"
+
+assert_eq "multiple trailing periods stripped" \
+  "fix: Resolve bug..." \
+  "fix: Resolve bug"
+
+assert_eq "trailing period with auto-detect" \
+  "fix a bug." \
+  "fix: Fix a bug"
+
+# --- fixup!/squash!/amend! passthrough ---
+assert_eq "fixup commit passthrough" \
+  "fixup! feat: Add feature" \
+  "fixup! feat: Add feature"
+
+assert_eq "squash commit passthrough" \
+  "squash! fix: Resolve crash" \
+  "squash! fix: Resolve crash"
+
+assert_eq "amend commit passthrough" \
+  "amend! chore: Update deps" \
+  "amend! chore: Update deps"
+
+# --- Breaking change indicator ---
+assert_eq "breaking change preserved" \
+  "feat!: Drop support for Node 12" \
+  "feat!: Drop support for Node 12"
+
+assert_eq "breaking change with scope" \
+  "fix(api)!: Remove deprecated endpoint" \
+  "fix(api)!: Remove deprecated endpoint"
+
+assert_eq "breaking change uppercase normalized" \
+  "FEAT!: Major rewrite" \
+  "feat!: Major rewrite"
+
 echo ""
 echo "Results: ${PASS} passed, ${FAIL} failed"
 
