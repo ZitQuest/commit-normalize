@@ -34,17 +34,27 @@ if [ -z "$subject" ]; then
   exit 0
 fi
 
+# Skip fixup!, squash!, and amend! commits (used by interactive rebase)
+case "$subject" in
+  fixup!\ *|squash!\ *|amend!\ *) exit 0 ;;
+esac
+
 # --- Detect and normalize type prefix ---
 
 detected_type=""
 description=""
 
-# Check if subject already has a type prefix (with optional scope) followed by colon
-if echo "$subject" | grep -qE '^[A-Za-z]+(\([^)]*\))?[[:space:]]*:[[:space:]]*'; then
-  # Extract the type (everything before optional scope and colon)
-  raw_type=$(echo "$subject" | sed -E 's/^([A-Za-z]+)(\([^)]*\))?[[:space:]]*:.*/\1/')
-  scope=$(echo "$subject" | sed -E 's/^[A-Za-z]+(\([^)]*\))?[[:space:]]*:.*/\1/')
-  description=$(echo "$subject" | sed -E 's/^[A-Za-z]+(\([^)]*\))?[[:space:]]*:[[:space:]]*//')
+# Check if subject already has a type prefix (with optional scope and breaking !) followed by colon
+if echo "$subject" | grep -qE '^[A-Za-z]+(\([^)]*\))?!?[[:space:]]*:[[:space:]]*'; then
+  # Extract the type (everything before optional scope, bang, and colon)
+  raw_type=$(echo "$subject" | sed -E 's/^([A-Za-z]+)(\([^)]*\))?!?[[:space:]]*:.*/\1/')
+  scope=$(echo "$subject" | sed -E 's/^[A-Za-z]+(\([^)]*\))?!?[[:space:]]*:.*/\1/')
+  # Detect breaking change indicator (!)
+  breaking=""
+  if echo "$subject" | grep -qE '^[A-Za-z]+(\([^)]*\))?![[:space:]]*:'; then
+    breaking="!"
+  fi
+  description=$(echo "$subject" | sed -E 's/^[A-Za-z]+(\([^)]*\))?!?[[:space:]]*:[[:space:]]*//')
 
   # Lowercase the type
   normalized_type=$(echo "$raw_type" | tr '[:upper:]' '[:lower:]')
@@ -65,22 +75,24 @@ if echo "$subject" | grep -qE '^[A-Za-z]+(\([^)]*\))?[[:space:]]*:[[:space:]]*';
     detected_type="chore"
     description="$subject"
     scope=""
+    breaking=""
   fi
 else
   # No type prefix found — auto-detect from keywords
   lower_subject=$(echo "$subject" | tr '[:upper:]' '[:lower:]')
   scope=""
+  breaking=""
 
   case "$lower_subject" in
     *fix*|*bug*|*patch*|*resolve*)   detected_type="fix" ;;
-    *feat*|*add*|*new*|*implement*) detected_type="feat" ;;
-    *doc*|*readme*)                  detected_type="docs" ;;
-    *style*|*format*|*lint*)         detected_type="style" ;;
-    *refactor*|*restructure*)        detected_type="refactor" ;;
     *test*)                          detected_type="test" ;;
+    *doc*|*readme*)                  detected_type="docs" ;;
+    *refactor*|*restructure*)        detected_type="refactor" ;;
+    *style*|*format*|*lint*)         detected_type="style" ;;
+    *perf*|*optim*)                  detected_type="perf" ;;
+    *feat*|*add*|*new*|*implement*) detected_type="feat" ;;
     *build*|*dep*)                   detected_type="build" ;;
     *ci*|*pipeline*)                 detected_type="ci" ;;
-    *perf*|*optim*)                  detected_type="perf" ;;
     *revert*)                        detected_type="revert" ;;
     *)                               detected_type="chore" ;;
   esac
@@ -93,6 +105,9 @@ fi
 # Trim leading/trailing whitespace
 description=$(echo "$description" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 
+# Strip trailing period(s)
+description=$(echo "$description" | sed -e 's/\.*$//')
+
 # Capitalize first letter of description
 if [ -n "$description" ]; then
   first_char=$(echo "$description" | cut -c1 | tr '[:lower:]' '[:upper:]')
@@ -102,7 +117,7 @@ fi
 
 # --- Reconstruct subject ---
 
-new_subject="${detected_type}${scope}: ${description}"
+new_subject="${detected_type}${scope}${breaking}: ${description}"
 
 # --- Warn if subject exceeds max length ---
 

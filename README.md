@@ -9,10 +9,13 @@ A portable POSIX shell git `commit-msg` hook that normalizes commit messages to 
 - Lowercases the type prefix
 - Ensures `type: Description` format (colon + space separator)
 - Capitalizes the first letter of the description
+- Strips trailing periods from the description
 - Warns if the subject line exceeds 72 characters
 - Ensures a blank line between subject and body
 - Preserves scoped types like `feat(api): ...`
+- Preserves breaking change indicators like `feat!: ...` and `fix(api)!: ...`
 - Skips merge commits
+- Passes through `fixup!`, `squash!`, and `amend!` commits for interactive rebase
 
 ## Install
 
@@ -35,6 +38,9 @@ This symlinks `commit-normalize.sh` as `.git/hooks/commit-msg`. If a hook alread
 | `add new login page` | `feat: Add new login page` |
 | `updated README` | `docs: Updated README` |
 | `some random change` | `chore: Some random change` |
+| `feat: Add feature.` | `feat: Add feature` |
+| `feat!: Drop Node 12` | `feat!: Drop Node 12` |
+| `fixup! feat: Add feature` | `fixup! feat: Add feature` |
 
 ## Testing
 
