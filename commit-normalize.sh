@@ -2,13 +2,23 @@
 # commit-normalize.sh — git commit-msg hook
 # Normalizes commit messages to Conventional Commits format.
 # Usage: Place as .git/hooks/commit-msg (must be executable)
+#        commit-normalize.sh --check <commit-msg-file>  (dry-run, exit 1 if changed)
 
 set -e
+
+# Parse flags
+CHECK_MODE=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --check) CHECK_MODE=1; shift ;;
+    *) break ;;
+  esac
+done
 
 COMMIT_MSG_FILE="$1"
 
 if [ -z "$COMMIT_MSG_FILE" ]; then
-  echo "Usage: $0 <commit-msg-file>" >&2
+  echo "Usage: $0 [--check] <commit-msg-file>" >&2
   exit 1
 fi
 
@@ -24,6 +34,51 @@ cleaned=$(echo "$msg" | sed '/^#/d')
 # Separate subject from body
 subject=$(echo "$cleaned" | head -n 1)
 body=$(echo "$cleaned" | tail -n +2)
+
+# --- Extract git trailers from body ---
+# Trailers are key-value lines (e.g. "Signed-off-by: Name <email>") at the end of the message,
+# separated from the body by a blank line. We preserve them verbatim.
+trailers=""
+if [ -n "$body" ]; then
+  # Count total body lines
+  _total=$(printf '%s\n' "$body" | wc -l | tr -d ' ')
+  # Walk backwards from the end to find contiguous trailer lines
+  _trailer_start=0
+  _i="$_total"
+  while [ "$_i" -gt 0 ]; do
+    _line=$(printf '%s\n' "$body" | sed -n "${_i}p")
+    if printf '%s' "$_line" | grep -qE '^[A-Za-z][A-Za-z0-9_-]*:[[:space:]]'; then
+      _trailer_start="$_i"
+      _i=$((_i - 1))
+    elif [ -z "$_line" ] && [ "$_trailer_start" -gt 0 ]; then
+      # blank line immediately before trailer block — stop
+      break
+    else
+      # non-trailer, non-blank line — no trailer block
+      _trailer_start=0
+      break
+    fi
+  done
+  if [ "$_trailer_start" -gt 0 ]; then
+    trailers=$(printf '%s\n' "$body" | sed -n "${_trailer_start},${_total}p")
+    # Body is everything before the blank line preceding trailers
+    _body_end=$((_trailer_start - 1))
+    if [ "$_body_end" -gt 0 ]; then
+      body=$(printf '%s\n' "$body" | sed -n "1,${_body_end}p")
+      # Strip trailing blank lines from body
+      while [ -n "$body" ]; do
+        _last=$(printf '%s\n' "$body" | tail -n 1)
+        if [ -z "$_last" ]; then
+          body=$(printf '%s\n' "$body" | sed '$d')
+        else
+          break
+        fi
+      done
+    else
+      body=""
+    fi
+  fi
+fi
 
 # Skip merge commits and empty messages
 case "$subject" in
@@ -137,9 +192,30 @@ ${body}"
   fi
 fi
 
+# --- Build normalized message ---
+
+normalized=$(printf '%s\n' "$new_subject")
+if [ -n "$body" ]; then
+  normalized=$(printf '%s\n%s\n' "$new_subject" "$body")
+fi
+if [ -n "$trailers" ]; then
+  # Ensure blank line before trailers
+  normalized=$(printf '%s\n\n%s\n' "$normalized" "$trailers")
+fi
+
+# --- Check mode: compare and exit ---
+
+if [ "$CHECK_MODE" -eq 1 ]; then
+  original=$(cat "$COMMIT_MSG_FILE")
+  if [ "$original" = "$normalized" ]; then
+    exit 0
+  else
+    echo "Commit message would be normalized:" >&2
+    echo "$normalized" >&2
+    exit 1
+  fi
+fi
+
 # --- Write normalized message ---
 
-printf '%s\n' "$new_subject" > "$COMMIT_MSG_FILE"
-if [ -n "$body" ]; then
-  printf '%s\n' "$body" >> "$COMMIT_MSG_FILE"
-fi
+printf '%s' "$normalized" > "$COMMIT_MSG_FILE"

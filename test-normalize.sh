@@ -181,6 +181,106 @@ assert_eq "breaking change uppercase normalized" \
   "FEAT!: Major rewrite" \
   "feat!: Major rewrite"
 
+# --- Trailer preservation ---
+assert_eq "trailers preserved in body" \
+  "feat: Add feature
+
+This is the body.
+
+Signed-off-by: Alice <alice@example.com>" \
+  "feat: Add feature
+
+This is the body.
+
+Signed-off-by: Alice <alice@example.com>"
+
+assert_eq "multiple trailers preserved" \
+  "fix: Fix bug
+
+Details here.
+
+Co-Authored-By: Bob <bob@example.com>
+Nightshift-Task: my-task" \
+  "fix: Fix bug
+
+Details here.
+
+Co-Authored-By: Bob <bob@example.com>
+Nightshift-Task: my-task"
+
+assert_eq "trailers preserved with normalization" \
+  "FIX: resolve crash.
+
+Signed-off-by: Alice <alice@example.com>" \
+  "fix: Resolve crash
+
+Signed-off-by: Alice <alice@example.com>"
+
+assert_eq "trailers without body text" \
+  "feat: Add feature
+
+Signed-off-by: Alice <alice@example.com>" \
+  "feat: Add feature
+
+Signed-off-by: Alice <alice@example.com>"
+
+assert_eq "trailers with auto-detect type" \
+  "fix a bug
+
+Nightshift-Task: foo
+Nightshift-Ref: https://example.com" \
+  "fix: Fix a bug
+
+Nightshift-Task: foo
+Nightshift-Ref: https://example.com"
+
+# --- --check mode ---
+assert_check_pass() {
+  test_name="$1"
+  input="$2"
+
+  printf '%s' "$input" > "$TMPFILE"
+  if "$HOOK" --check "$TMPFILE" 2>/dev/null; then
+    PASS=$((PASS + 1))
+    printf '  PASS: %s\n' "$test_name"
+  else
+    FAIL=$((FAIL + 1))
+    printf '  FAIL: %s (expected exit 0, got non-zero)\n' "$test_name"
+  fi
+}
+
+assert_check_fail() {
+  test_name="$1"
+  input="$2"
+
+  printf '%s' "$input" > "$TMPFILE"
+  if "$HOOK" --check "$TMPFILE" 2>/dev/null; then
+    FAIL=$((FAIL + 1))
+    printf '  FAIL: %s (expected exit 1, got 0)\n' "$test_name"
+  else
+    PASS=$((PASS + 1))
+    printf '  PASS: %s\n' "$test_name"
+  fi
+  # Verify file was NOT modified
+  actual=$(cat "$TMPFILE")
+  if [ "$actual" != "$input" ]; then
+    FAIL=$((FAIL + 1))
+    printf '  FAIL: %s (file was modified in --check mode)\n' "$test_name"
+  fi
+}
+
+assert_check_pass "check mode: already normalized passes" \
+  "feat: Add new feature"
+
+assert_check_fail "check mode: needs normalization fails" \
+  "FIX: resolve crash."
+
+assert_check_pass "check mode: merge commit passes" \
+  "Merge branch 'main' into feature"
+
+assert_check_fail "check mode: missing type prefix fails" \
+  "fix a bug in parser"
+
 echo ""
 echo "Results: ${PASS} passed, ${FAIL} failed"
 
