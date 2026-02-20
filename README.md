@@ -15,7 +15,9 @@ A portable POSIX shell git `commit-msg` hook that normalizes commit messages to 
 - Preserves scoped types like `feat(api): ...`
 - Preserves breaking change indicators like `feat!: ...` and `fix(api)!: ...`
 - Skips merge commits
+- Preserves git trailers (`Signed-off-by`, `Co-Authored-By`, `Nightshift-Task`, etc.) verbatim
 - Passes through `fixup!`, `squash!`, and `amend!` commits for interactive rebase
+- Supports `--check` mode for CI linting (exits non-zero if message would change)
 
 ## Install
 
@@ -41,6 +43,15 @@ This symlinks `commit-normalize.sh` as `.git/hooks/commit-msg`. If a hook alread
 | `feat: Add feature.` | `feat: Add feature` |
 | `feat!: Drop Node 12` | `feat!: Drop Node 12` |
 | `fixup! feat: Add feature` | `fixup! feat: Add feature` |
+
+## CI / Linting
+
+Use `--check` to verify a commit message is already normalized without modifying it:
+
+```sh
+# Exits 0 if already normalized, 1 if it would change
+./commit-normalize.sh --check .git/COMMIT_EDITMSG
+```
 
 ## Testing
 
