@@ -27,9 +27,29 @@ A portable POSIX shell git `commit-msg` hook that normalizes commit messages to 
 
 # Install into a specific repo
 ./install.sh /path/to/repo
+
+# Install globally (all repos)
+./install.sh --global
 ```
 
 This symlinks `commit-normalize.sh` as `.git/hooks/commit-msg`. If a hook already exists, it is backed up to `commit-msg.bak`.
+
+Global install sets `git config --global core.hooksPath` to `~/.git-hooks/`, so the hook applies to every repository.
+
+## Uninstall
+
+```sh
+# Uninstall from the current repo
+./install.sh --uninstall
+
+# Uninstall from a specific repo
+./install.sh --uninstall /path/to/repo
+
+# Uninstall globally
+./install.sh --uninstall --global
+```
+
+Uninstall removes the hook symlink and restores any `.bak` backup. Global uninstall also clears `core.hooksPath`.
 
 ## Examples
 

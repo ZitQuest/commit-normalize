@@ -281,6 +281,150 @@ assert_check_pass "check mode: merge commit passes" \
 assert_check_fail "check mode: missing type prefix fails" \
   "fix a bug in parser"
 
+# === Installer integration tests ===
+
+echo ""
+echo "=== install.sh tests ==="
+
+INSTALLER="${SCRIPT_DIR}/install.sh"
+TEST_REPO=$(mktemp -d)
+ORIG_GLOBAL_HOOKS_PATH=$(git config --global core.hooksPath 2>/dev/null || true)
+
+installer_cleanup() {
+  rm -f "$TMPFILE"
+  rm -rf "$TEST_REPO"
+  # Restore original global hooksPath
+  if [ -n "$ORIG_GLOBAL_HOOKS_PATH" ]; then
+    git config --global core.hooksPath "$ORIG_GLOBAL_HOOKS_PATH"
+  else
+    git config --global --unset core.hooksPath 2>/dev/null || true
+  fi
+  rm -rf "$HOME/.git-hooks-test-backup"
+}
+trap installer_cleanup EXIT
+
+# Create a test git repo
+git init "$TEST_REPO" >/dev/null 2>&1
+
+# --- Per-repo install ---
+install_output=$("$INSTALLER" "$TEST_REPO" 2>&1)
+if [ -L "${TEST_REPO}/.git/hooks/commit-msg" ]; then
+  PASS=$((PASS + 1))
+  printf '  PASS: per-repo install creates symlink\n'
+else
+  FAIL=$((FAIL + 1))
+  printf '  FAIL: per-repo install creates symlink\n'
+fi
+
+# Verify symlink target
+link_target=$(readlink "${TEST_REPO}/.git/hooks/commit-msg")
+if [ "$link_target" = "$SCRIPT_DIR/commit-normalize.sh" ]; then
+  PASS=$((PASS + 1))
+  printf '  PASS: symlink points to commit-normalize.sh\n'
+else
+  FAIL=$((FAIL + 1))
+  printf '  FAIL: symlink points to commit-normalize.sh (got: %s)\n' "$link_target"
+fi
+
+# --- Per-repo install over existing hook creates backup ---
+rm -f "${TEST_REPO}/.git/hooks/commit-msg"
+echo "#!/bin/sh" > "${TEST_REPO}/.git/hooks/commit-msg"
+"$INSTALLER" "$TEST_REPO" 2>/dev/null
+if [ -e "${TEST_REPO}/.git/hooks/commit-msg.bak" ]; then
+  PASS=$((PASS + 1))
+  printf '  PASS: per-repo install backs up existing hook\n'
+else
+  FAIL=$((FAIL + 1))
+  printf '  FAIL: per-repo install backs up existing hook\n'
+fi
+
+# --- Per-repo uninstall ---
+"$INSTALLER" --uninstall "$TEST_REPO" 2>/dev/null
+if [ ! -e "${TEST_REPO}/.git/hooks/commit-msg" ] || [ "$(cat "${TEST_REPO}/.git/hooks/commit-msg")" = "#!/bin/sh" ]; then
+  PASS=$((PASS + 1))
+  printf '  PASS: per-repo uninstall removes hook or restores backup\n'
+else
+  FAIL=$((FAIL + 1))
+  printf '  FAIL: per-repo uninstall removes hook or restores backup\n'
+fi
+
+# Verify backup was restored
+if [ -e "${TEST_REPO}/.git/hooks/commit-msg" ] && [ "$(cat "${TEST_REPO}/.git/hooks/commit-msg")" = "#!/bin/sh" ]; then
+  PASS=$((PASS + 1))
+  printf '  PASS: per-repo uninstall restores backup\n'
+else
+  FAIL=$((FAIL + 1))
+  printf '  FAIL: per-repo uninstall restores backup\n'
+fi
+
+# --- Per-repo uninstall when no hook exists ---
+rm -f "${TEST_REPO}/.git/hooks/commit-msg" "${TEST_REPO}/.git/hooks/commit-msg.bak"
+uninstall_output=$("$INSTALLER" --uninstall "$TEST_REPO" 2>&1)
+if echo "$uninstall_output" | grep -q "No hook found"; then
+  PASS=$((PASS + 1))
+  printf '  PASS: uninstall with no hook prints message\n'
+else
+  FAIL=$((FAIL + 1))
+  printf '  FAIL: uninstall with no hook prints message\n'
+fi
+
+# --- Global install ---
+# Back up existing global hooks dir if it exists
+if [ -d "$HOME/.git-hooks" ]; then
+  mv "$HOME/.git-hooks" "$HOME/.git-hooks-test-backup"
+fi
+
+"$INSTALLER" --global 2>/dev/null
+if [ -L "$HOME/.git-hooks/commit-msg" ]; then
+  PASS=$((PASS + 1))
+  printf '  PASS: global install creates symlink\n'
+else
+  FAIL=$((FAIL + 1))
+  printf '  FAIL: global install creates symlink\n'
+fi
+
+global_hooks_path=$(git config --global core.hooksPath 2>/dev/null || true)
+if [ "$global_hooks_path" = "$HOME/.git-hooks" ]; then
+  PASS=$((PASS + 1))
+  printf '  PASS: global install sets core.hooksPath\n'
+else
+  FAIL=$((FAIL + 1))
+  printf '  FAIL: global install sets core.hooksPath (got: %s)\n' "$global_hooks_path"
+fi
+
+# --- Global uninstall ---
+"$INSTALLER" --uninstall --global 2>/dev/null
+if [ ! -e "$HOME/.git-hooks/commit-msg" ]; then
+  PASS=$((PASS + 1))
+  printf '  PASS: global uninstall removes hook\n'
+else
+  FAIL=$((FAIL + 1))
+  printf '  FAIL: global uninstall removes hook\n'
+fi
+
+global_hooks_path_after=$(git config --global core.hooksPath 2>/dev/null || true)
+if [ -z "$global_hooks_path_after" ]; then
+  PASS=$((PASS + 1))
+  printf '  PASS: global uninstall clears core.hooksPath\n'
+else
+  FAIL=$((FAIL + 1))
+  printf '  FAIL: global uninstall clears core.hooksPath (got: %s)\n' "$global_hooks_path_after"
+fi
+
+# Restore backed-up global hooks dir
+if [ -d "$HOME/.git-hooks-test-backup" ]; then
+  mv "$HOME/.git-hooks-test-backup" "$HOME/.git-hooks"
+fi
+
+# --- Unknown flag ---
+if "$INSTALLER" --bogus 2>/dev/null; then
+  FAIL=$((FAIL + 1))
+  printf '  FAIL: unknown flag exits non-zero\n'
+else
+  PASS=$((PASS + 1))
+  printf '  PASS: unknown flag exits non-zero\n'
+fi
+
 echo ""
 echo "Results: ${PASS} passed, ${FAIL} failed"
 
