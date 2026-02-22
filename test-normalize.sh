@@ -307,7 +307,7 @@ trap installer_cleanup EXIT
 git init "$TEST_REPO" >/dev/null 2>&1
 
 # --- Per-repo install ---
-install_output=$("$INSTALLER" "$TEST_REPO" 2>&1)
+"$INSTALLER" "$TEST_REPO" >/dev/null 2>&1
 if [ -L "${TEST_REPO}/.git/hooks/commit-msg" ]; then
   PASS=$((PASS + 1))
   printf '  PASS: per-repo install creates symlink\n'
