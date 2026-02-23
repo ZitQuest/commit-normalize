@@ -24,6 +24,43 @@ fi
 
 VALID_TYPES="feat fix docs style refactor test chore build ci perf revert"
 MAX_SUBJECT_LENGTH=72
+CAPITALIZE_FIRST=on
+STRIP_TRAILING_PERIOD=on
+
+# --- Load optional configuration ---
+# Config is read from .commitnormalizerc in the repo root (if inside a git repo)
+# or from $HOME/.commitnormalizerc as a fallback. Repo config takes precedence.
+
+_load_config() {
+  _config_file="$1"
+  [ -f "$_config_file" ] || return 0
+  # Append a newline to ensure the last line is always read
+  while IFS='=' read -r _key _val; do
+    # Skip blank lines and comments
+    case "$_key" in
+      ''|\#*) continue ;;
+    esac
+    # Trim whitespace
+    _key=$(printf '%s' "$_key" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+    _val=$(printf '%s' "$_val" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+    case "$_key" in
+      types)              VALID_TYPES="$_val" ;;
+      max_subject_length) MAX_SUBJECT_LENGTH="$_val" ;;
+      capitalize_first)   CAPITALIZE_FIRST="$_val" ;;
+      strip_trailing_period) STRIP_TRAILING_PERIOD="$_val" ;;
+    esac
+  done <<EOF
+$(cat "$_config_file")
+EOF
+}
+
+# Load global config first, then repo-local config (repo overrides global)
+_load_config "$HOME/.commitnormalizerc"
+
+_repo_root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+if [ -n "$_repo_root" ] && [ -f "$_repo_root/.commitnormalizerc" ]; then
+  _load_config "$_repo_root/.commitnormalizerc"
+fi
 
 # Read the commit message
 msg=$(cat "$COMMIT_MSG_FILE")
@@ -161,10 +198,12 @@ fi
 description=$(echo "$description" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 
 # Strip trailing period(s)
-description=$(echo "$description" | sed -e 's/\.*$//')
+if [ "$STRIP_TRAILING_PERIOD" = "on" ]; then
+  description=$(echo "$description" | sed -e 's/\.*$//')
+fi
 
 # Capitalize first letter of description
-if [ -n "$description" ]; then
+if [ "$CAPITALIZE_FIRST" = "on" ] && [ -n "$description" ]; then
   first_char=$(echo "$description" | cut -c1 | tr '[:lower:]' '[:upper:]')
   rest=$(echo "$description" | cut -c2-)
   description="${first_char}${rest}"

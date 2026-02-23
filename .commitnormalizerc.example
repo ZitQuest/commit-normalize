@@ -1,0 +1,19 @@
+# .commitnormalizerc — configuration for commit-normalize
+# Place this file in your repo root or $HOME/.commitnormalizerc
+# Repo-level config takes precedence over the global ($HOME) config.
+
+# Valid commit types (space-separated)
+# Default: feat fix docs style refactor test chore build ci perf revert
+# types = feat fix docs style refactor test chore build ci perf revert
+
+# Maximum subject line length before a warning is shown
+# Default: 72
+# max_subject_length = 72
+
+# Capitalize the first letter of the description (on/off)
+# Default: on
+# capitalize_first = on
+
+# Strip trailing period(s) from the description (on/off)
+# Default: on
+# strip_trailing_period = on

@@ -281,6 +281,99 @@ assert_check_pass "check mode: merge commit passes" \
 assert_check_fail "check mode: missing type prefix fails" \
   "fix a bug in parser"
 
+# === Configuration file tests ===
+
+echo ""
+echo "=== .commitnormalizerc config tests ==="
+
+# Create a temporary directory to act as a git repo with config
+CONFIG_TEST_REPO=$(mktemp -d)
+git init "$CONFIG_TEST_REPO" >/dev/null 2>&1
+
+# Helper that runs the hook inside a repo with a given .commitnormalizerc
+assert_eq_with_config() {
+  test_name="$1"
+  config_content="$2"
+  input="$3"
+  expected="$4"
+
+  printf '%s' "$config_content" > "$CONFIG_TEST_REPO/.commitnormalizerc"
+  printf '%s' "$input" > "$TMPFILE"
+  # Run hook from within the test repo so git rev-parse finds the config
+  (cd "$CONFIG_TEST_REPO" && "$HOOK" "$TMPFILE" 2>/dev/null || true)
+  actual=$(cat "$TMPFILE")
+
+  if [ "$actual" = "$expected" ]; then
+    PASS=$((PASS + 1))
+    printf '  PASS: %s\n' "$test_name"
+  else
+    FAIL=$((FAIL + 1))
+    printf '  FAIL: %s\n' "$test_name"
+    printf '    input:    %s\n' "$(echo "$input" | head -n 1)"
+    printf '    expected: %s\n' "$(echo "$expected" | head -n 1)"
+    printf '    actual:   %s\n' "$(echo "$actual" | head -n 1)"
+  fi
+  rm -f "$CONFIG_TEST_REPO/.commitnormalizerc"
+}
+
+# --- Custom types ---
+assert_eq_with_config "config: custom types recognizes new type" \
+  "types = feat fix custom" \
+  "custom: My change" \
+  "custom: My change"
+
+assert_eq_with_config "config: custom types rejects removed type" \
+  "types = feat fix custom" \
+  "docs: Update readme" \
+  "chore: Docs: Update readme"
+
+# --- Custom max subject length ---
+assert_eq_with_config "config: custom max length warns at shorter limit" \
+  "max_subject_length = 30" \
+  "feat: This is a somewhat longer subject line" \
+  "feat: This is a somewhat longer subject line"
+
+# --- Capitalize off ---
+assert_eq_with_config "config: capitalize off preserves lowercase" \
+  "capitalize_first = off" \
+  "feat: add new feature" \
+  "feat: add new feature"
+
+assert_eq_with_config "config: capitalize on (explicit) capitalizes" \
+  "capitalize_first = on" \
+  "feat: add new feature" \
+  "feat: Add new feature"
+
+# --- Strip trailing period off ---
+assert_eq_with_config "config: strip period off preserves period" \
+  "strip_trailing_period = off" \
+  "feat: Add new feature." \
+  "feat: Add new feature."
+
+assert_eq_with_config "config: strip period on (explicit) strips" \
+  "strip_trailing_period = on" \
+  "feat: Add new feature." \
+  "feat: Add new feature"
+
+# --- Combined config ---
+assert_eq_with_config "config: capitalize off + strip period off" \
+  "capitalize_first = off
+strip_trailing_period = off" \
+  "feat: add feature." \
+  "feat: add feature."
+
+assert_eq_with_config "config: comments and blank lines in config" \
+  "# This is a comment
+capitalize_first = off
+
+# Another comment
+strip_trailing_period = off" \
+  "feat: add feature." \
+  "feat: add feature."
+
+# Cleanup config test repo
+rm -rf "$CONFIG_TEST_REPO"
+
 # === Installer integration tests ===
 
 echo ""

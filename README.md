@@ -64,6 +64,27 @@ Uninstall removes the hook symlink and restores any `.bak` backup. Global uninst
 | `feat!: Drop Node 12` | `feat!: Drop Node 12` |
 | `fixup! feat: Add feature` | `fixup! feat: Add feature` |
 
+## Configuration
+
+Create a `.commitnormalizerc` file in your repo root or at `$HOME/.commitnormalizerc` for global defaults. Repo-level config takes precedence over the global config.
+
+```sh
+# .commitnormalizerc
+types = feat fix docs style refactor test chore build ci perf revert
+max_subject_length = 72
+capitalize_first = on
+strip_trailing_period = on
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `types` | `feat fix docs style refactor test chore build ci perf revert` | Space-separated list of valid commit types |
+| `max_subject_length` | `72` | Maximum subject length before a warning is shown |
+| `capitalize_first` | `on` | Capitalize the first letter of the description (`on`/`off`) |
+| `strip_trailing_period` | `on` | Remove trailing periods from the description (`on`/`off`) |
+
+See [`.commitnormalizerc.example`](.commitnormalizerc.example) for a commented sample.
+
 ## CI / Linting
 
 Use `--check` to verify a commit message is already normalized without modifying it:
