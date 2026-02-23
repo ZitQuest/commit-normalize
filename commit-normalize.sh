@@ -2,18 +2,65 @@
 # commit-normalize.sh — git commit-msg hook
 # Normalizes commit messages to Conventional Commits format.
 # Usage: Place as .git/hooks/commit-msg (must be executable)
+#        commit-normalize.sh --check <commit-msg-file>  (dry-run, exit 1 if changed)
 
 set -e
+
+# Parse flags
+CHECK_MODE=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --check) CHECK_MODE=1; shift ;;
+    *) break ;;
+  esac
+done
 
 COMMIT_MSG_FILE="$1"
 
 if [ -z "$COMMIT_MSG_FILE" ]; then
-  echo "Usage: $0 <commit-msg-file>" >&2
+  echo "Usage: $0 [--check] <commit-msg-file>" >&2
   exit 1
 fi
 
 VALID_TYPES="feat fix docs style refactor test chore build ci perf revert"
 MAX_SUBJECT_LENGTH=72
+CAPITALIZE_FIRST=on
+STRIP_TRAILING_PERIOD=on
+
+# --- Load optional configuration ---
+# Config is read from .commitnormalizerc in the repo root (if inside a git repo)
+# or from $HOME/.commitnormalizerc as a fallback. Repo config takes precedence.
+
+_load_config() {
+  _config_file="$1"
+  [ -f "$_config_file" ] || return 0
+  # Append a newline to ensure the last line is always read
+  while IFS='=' read -r _key _val; do
+    # Skip blank lines and comments
+    case "$_key" in
+      ''|\#*) continue ;;
+    esac
+    # Trim whitespace
+    _key=$(printf '%s' "$_key" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+    _val=$(printf '%s' "$_val" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+    case "$_key" in
+      types)              VALID_TYPES="$_val" ;;
+      max_subject_length) MAX_SUBJECT_LENGTH="$_val" ;;
+      capitalize_first)   CAPITALIZE_FIRST="$_val" ;;
+      strip_trailing_period) STRIP_TRAILING_PERIOD="$_val" ;;
+    esac
+  done <<EOF
+$(cat "$_config_file")
+EOF
+}
+
+# Load global config first, then repo-local config (repo overrides global)
+_load_config "$HOME/.commitnormalizerc"
+
+_repo_root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+if [ -n "$_repo_root" ] && [ -f "$_repo_root/.commitnormalizerc" ]; then
+  _load_config "$_repo_root/.commitnormalizerc"
+fi
 
 # Read the commit message
 msg=$(cat "$COMMIT_MSG_FILE")
@@ -25,6 +72,51 @@ cleaned=$(echo "$msg" | sed '/^#/d')
 subject=$(echo "$cleaned" | head -n 1)
 body=$(echo "$cleaned" | tail -n +2)
 
+# --- Extract git trailers from body ---
+# Trailers are key-value lines (e.g. "Signed-off-by: Name <email>") at the end of the message,
+# separated from the body by a blank line. We preserve them verbatim.
+trailers=""
+if [ -n "$body" ]; then
+  # Count total body lines
+  _total=$(printf '%s\n' "$body" | wc -l | tr -d ' ')
+  # Walk backwards from the end to find contiguous trailer lines
+  _trailer_start=0
+  _i="$_total"
+  while [ "$_i" -gt 0 ]; do
+    _line=$(printf '%s\n' "$body" | sed -n "${_i}p")
+    if printf '%s' "$_line" | grep -qE '^[A-Za-z][A-Za-z0-9_-]*:[[:space:]]'; then
+      _trailer_start="$_i"
+      _i=$((_i - 1))
+    elif [ -z "$_line" ] && [ "$_trailer_start" -gt 0 ]; then
+      # blank line immediately before trailer block — stop
+      break
+    else
+      # non-trailer, non-blank line — no trailer block
+      _trailer_start=0
+      break
+    fi
+  done
+  if [ "$_trailer_start" -gt 0 ]; then
+    trailers=$(printf '%s\n' "$body" | sed -n "${_trailer_start},${_total}p")
+    # Body is everything before the blank line preceding trailers
+    _body_end=$((_trailer_start - 1))
+    if [ "$_body_end" -gt 0 ]; then
+      body=$(printf '%s\n' "$body" | sed -n "1,${_body_end}p")
+      # Strip trailing blank lines from body
+      while [ -n "$body" ]; do
+        _last=$(printf '%s\n' "$body" | tail -n 1)
+        if [ -z "$_last" ]; then
+          body=$(printf '%s\n' "$body" | sed '$d')
+        else
+          break
+        fi
+      done
+    else
+      body=""
+    fi
+  fi
+fi
+
 # Skip merge commits and empty messages
 case "$subject" in
   Merge\ *) exit 0 ;;
@@ -34,17 +126,27 @@ if [ -z "$subject" ]; then
   exit 0
 fi
 
+# Skip fixup!, squash!, and amend! commits (used by interactive rebase)
+case "$subject" in
+  fixup!\ *|squash!\ *|amend!\ *) exit 0 ;;
+esac
+
 # --- Detect and normalize type prefix ---
 
 detected_type=""
 description=""
 
-# Check if subject already has a type prefix (with optional scope) followed by colon
-if echo "$subject" | grep -qE '^[A-Za-z]+(\([^)]*\))?[[:space:]]*:[[:space:]]*'; then
-  # Extract the type (everything before optional scope and colon)
-  raw_type=$(echo "$subject" | sed -E 's/^([A-Za-z]+)(\([^)]*\))?[[:space:]]*:.*/\1/')
-  scope=$(echo "$subject" | sed -E 's/^[A-Za-z]+(\([^)]*\))?[[:space:]]*:.*/\1/')
-  description=$(echo "$subject" | sed -E 's/^[A-Za-z]+(\([^)]*\))?[[:space:]]*:[[:space:]]*//')
+# Check if subject already has a type prefix (with optional scope and breaking !) followed by colon
+if echo "$subject" | grep -qE '^[A-Za-z]+(\([^)]*\))?!?[[:space:]]*:[[:space:]]*'; then
+  # Extract the type (everything before optional scope, bang, and colon)
+  raw_type=$(echo "$subject" | sed -E 's/^([A-Za-z]+)(\([^)]*\))?!?[[:space:]]*:.*/\1/')
+  scope=$(echo "$subject" | sed -E 's/^[A-Za-z]+(\([^)]*\))?!?[[:space:]]*:.*/\1/')
+  # Detect breaking change indicator (!)
+  breaking=""
+  if echo "$subject" | grep -qE '^[A-Za-z]+(\([^)]*\))?![[:space:]]*:'; then
+    breaking="!"
+  fi
+  description=$(echo "$subject" | sed -E 's/^[A-Za-z]+(\([^)]*\))?!?[[:space:]]*:[[:space:]]*//')
 
   # Lowercase the type
   normalized_type=$(echo "$raw_type" | tr '[:upper:]' '[:lower:]')
@@ -65,22 +167,24 @@ if echo "$subject" | grep -qE '^[A-Za-z]+(\([^)]*\))?[[:space:]]*:[[:space:]]*';
     detected_type="chore"
     description="$subject"
     scope=""
+    breaking=""
   fi
 else
   # No type prefix found — auto-detect from keywords
   lower_subject=$(echo "$subject" | tr '[:upper:]' '[:lower:]')
   scope=""
+  breaking=""
 
   case "$lower_subject" in
     *fix*|*bug*|*patch*|*resolve*)   detected_type="fix" ;;
-    *feat*|*add*|*new*|*implement*) detected_type="feat" ;;
-    *doc*|*readme*)                  detected_type="docs" ;;
-    *style*|*format*|*lint*)         detected_type="style" ;;
-    *refactor*|*restructure*)        detected_type="refactor" ;;
     *test*)                          detected_type="test" ;;
+    *doc*|*readme*)                  detected_type="docs" ;;
+    *refactor*|*restructure*)        detected_type="refactor" ;;
+    *style*|*format*|*lint*)         detected_type="style" ;;
+    *perf*|*optim*)                  detected_type="perf" ;;
+    *feat*|*add*|*new*|*implement*) detected_type="feat" ;;
     *build*|*dep*)                   detected_type="build" ;;
     *ci*|*pipeline*)                 detected_type="ci" ;;
-    *perf*|*optim*)                  detected_type="perf" ;;
     *revert*)                        detected_type="revert" ;;
     *)                               detected_type="chore" ;;
   esac
@@ -93,8 +197,13 @@ fi
 # Trim leading/trailing whitespace
 description=$(echo "$description" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 
+# Strip trailing period(s)
+if [ "$STRIP_TRAILING_PERIOD" = "on" ]; then
+  description=$(echo "$description" | sed -e 's/\.*$//')
+fi
+
 # Capitalize first letter of description
-if [ -n "$description" ]; then
+if [ "$CAPITALIZE_FIRST" = "on" ] && [ -n "$description" ]; then
   first_char=$(echo "$description" | cut -c1 | tr '[:lower:]' '[:upper:]')
   rest=$(echo "$description" | cut -c2-)
   description="${first_char}${rest}"
@@ -102,7 +211,7 @@ fi
 
 # --- Reconstruct subject ---
 
-new_subject="${detected_type}${scope}: ${description}"
+new_subject="${detected_type}${scope}${breaking}: ${description}"
 
 # --- Warn if subject exceeds max length ---
 
@@ -122,9 +231,30 @@ ${body}"
   fi
 fi
 
+# --- Build normalized message ---
+
+normalized=$(printf '%s\n' "$new_subject")
+if [ -n "$body" ]; then
+  normalized=$(printf '%s\n%s\n' "$new_subject" "$body")
+fi
+if [ -n "$trailers" ]; then
+  # Ensure blank line before trailers
+  normalized=$(printf '%s\n\n%s\n' "$normalized" "$trailers")
+fi
+
+# --- Check mode: compare and exit ---
+
+if [ "$CHECK_MODE" -eq 1 ]; then
+  original=$(cat "$COMMIT_MSG_FILE")
+  if [ "$original" = "$normalized" ]; then
+    exit 0
+  else
+    echo "Commit message would be normalized:" >&2
+    echo "$normalized" >&2
+    exit 1
+  fi
+fi
+
 # --- Write normalized message ---
 
-printf '%s\n' "$new_subject" > "$COMMIT_MSG_FILE"
-if [ -n "$body" ]; then
-  printf '%s\n' "$body" >> "$COMMIT_MSG_FILE"
-fi
+printf '%s' "$normalized" > "$COMMIT_MSG_FILE"
